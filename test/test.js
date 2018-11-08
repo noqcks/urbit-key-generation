@@ -408,6 +408,44 @@ describe('shard', () => {
   })
 })
 
+describe('walletFromMasterSeed', () => {
+  let buf256 = seedBuffer256.smap(
+    arr => Buffer.from(arr),
+    buf => Array.from(buf)
+  )
+
+  let config = jsc.record({
+    master: buf256,
+    type: jsc.oneof(lodash.values(kg.CHILD_SEED_TYPES).map(jsc.constant)),
+    revision: jsc.uint8,
+    ship: jsc.uint32,
+    password: jsc.string,
+    boot: jsc.bool
+  })
+
+  it('contains the expected properties', async function() {
+    this.timeout(10000)
+
+    let hasExpectedProperties = (wallet) => {
+      let hasOwnership = 'ownership' in wallet
+      let hasManagement = 'management' in wallet
+      let hasTransfer = 'transfer' in wallet
+      let hasSpawn = 'spawn' in wallet
+      let hasVoting = 'voting' in wallet
+      let hasNetwork = 'network' in wallet
+
+      return hasOwnership && hasTransfer && hasSpawn && hasManagement
+        hasNetwork && hasVoting
+    }
+
+    jsc.assert(jsc.forall(config, async function(cfg) {
+      let wallet = await kg._walletFromMasterSeed(cfg)
+      return hasExpectedProperties(wallet)
+    }))
+
+  })
+})
+
 describe('generateWallet', () => {
   it('generates wallets as expected', async function() {
     this.timeout(20000)
