@@ -301,11 +301,16 @@ const shard = ticket => {
 }
 
 
-
 /**
- * Generate an Urbit HD wallet given the provided configuration.
+ * Generate an Urbit HD wallet from a master seed, given the provided
+ * configuration.
  *
- * @param  {String}  ticket a 64, 128, or 384-bit @q master ticket
+ * Note that users never deal with master seeds explicitly -- this function
+ * allows us to rapidly test full wallets, given a master ticket.  Otherwise
+ * generating master seeds from tickets with argon2 makes it far too slow to
+ * test many wallets.
+ *
+ * @param  {Uint8Array}  master a 256-bit master seed
  * @param  {Number}  ship an optional ship number
  * @param  {String}  password a password used to salt generated seeds (default:
  *   null)
@@ -314,23 +319,11 @@ const shard = ticket => {
  *   (default: false)
  * @return  {Promise<Object>}
  */
-const generateWallet = async config => {
-  const { ticket } = config
-  const ship = 'ship' in config ? config.ship : null
-  const password = 'password' in config ? config.password : null
-  const revision = 'revision' in config ? config.revision : 0
-  const boot = 'boot' in config ? config.boot : false
-
-  const ticketHex = ob.patq2hex(ticket)
-  const ticketBuf = Buffer.from(ticketHex, 'hex')
-  const hashedTicket = await argon2u(ticketBuf)
-
-  const shards = shard(ticket)
-
-  const masterSeed = hashedTicket.hash
+const walletFromMasterSeed = async config => {
+  const { master, ship, revision, password, boot } = config
 
   const ownership = await childNodeFromSeed({
-      seed: masterSeed,
+      seed: master,
       type: CHILD_SEED_TYPES.OWNERSHIP,
       ship: ship,
       revision: revision,
@@ -338,7 +331,7 @@ const generateWallet = async config => {
     })
 
   const transfer = await childNodeFromSeed({
-      seed: masterSeed,
+      seed: master,
       type: CHILD_SEED_TYPES.TRANSFER,
       ship: ship,
       revision: revision,
@@ -346,7 +339,7 @@ const generateWallet = async config => {
     })
 
   const spawn = await childNodeFromSeed({
-      seed: masterSeed,
+      seed: master,
       type: CHILD_SEED_TYPES.SPAWN,
       ship: ship,
       revision: revision,
@@ -356,7 +349,7 @@ const generateWallet = async config => {
   const voting =
     isGalaxy(ship)
     ? await childNodeFromSeed({
-        seed: masterSeed,
+        seed: master,
         type: CHILD_SEED_TYPES.VOTING,
         ship: ship,
         revision: revision,
@@ -365,7 +358,7 @@ const generateWallet = async config => {
     : {}
 
   const management = await childNodeFromSeed({
-      seed: masterSeed,
+      seed: master,
       type: CHILD_SEED_TYPES.MANAGEMENT,
       ship: ship,
       revision: revision,
@@ -390,14 +383,63 @@ const generateWallet = async config => {
   }
 
   return {
-    ticket: ticket,
-    shards: shards,
     ownership: ownership,
     transfer: transfer,
     spawn: spawn,
     voting: voting,
     management: management,
     network: network
+  }
+}
+
+
+
+/**
+ * Generate an Urbit HD wallet given the provided configuration.
+ *
+ * @param  {String}  ticket a 64, 128, or 384-bit @q master ticket
+ * @param  {Number}  ship an optional ship number
+ * @param  {String}  password a password used to salt generated seeds (default:
+ *   null)
+ * @param  {Number}  revision a revision number used as a salt (default: 0)
+ * @param  {Bool}  boot if true, generate network keys for the provided ship
+ *   (default: false)
+ * @return  {Promise<Object>}
+ */
+const generateWallet = async config => {
+  const { ticket } = config
+
+  const ship = 'ship' in config ? config.ship : null
+  const password = 'password' in config ? config.password : null
+  const revision = 'revision' in config ? config.revision : 0
+  const boot = 'boot' in config ? config.boot : false
+
+  const shards = shard(ticket)
+
+  const ticketHex = ob.patq2hex(ticket)
+  const ticketBuf = Buffer.from(ticketHex, 'hex')
+  const hashedTicket = await argon2u(ticketBuf)
+
+  const master = hashedTicket.hash
+
+  const {
+    ownership,
+    transfer,
+    spawn,
+    voting,
+    management,
+    network
+  } = await walletFromMasterSeed({ master, ship, revision, password, boot})
+
+  return {
+    ticket,
+    shards,
+    ownership,
+    transfer,
+    spawn,
+    voting,
+    management,
+    network
   }
 }
 
@@ -413,6 +455,7 @@ module.exports = {
   addressFromSecp256k1Public,
   addressFromSecp256k1Private,
 
+  _walletFromMasterSeed: walletFromMasterSeed,
   _isGalaxy: isGalaxy,
   _sha256: sha256,
   _keccak256: keccak256,
